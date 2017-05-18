@@ -141,7 +141,7 @@ function rollback(object, ver)
 end
 
 actions = {
-  ["readver"] = function() read_version(object, arg[4]) end,
+  ["getver"] = function() read_version(object, arg[4]) end,
   ["lsver"] = function() ls_versions(object) end,
   ["rm"] = function() remove(object) end,
   ["put"] = function() put(object, arg[4]) end,
