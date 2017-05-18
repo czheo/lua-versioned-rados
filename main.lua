@@ -98,8 +98,15 @@ function write_commit_blob(object, parent, blob_hash)
   return commit_hash
 end
 
-function write(object, str, offset)
-  return ioctx:write(object, str, #str, offset)
+function write(object, str)
+  script = [[
+  function write_full(input, output)
+    objclass.write_full(input, #input)
+  end
+  objclass.register(write_full)
+  ]]
+
+  clslua.exec(ioctx, object, script, 'write_full', str)
 end
 
 function commit_msg(object, parent, blob_hash)
@@ -109,14 +116,13 @@ function commit_msg(object, parent, blob_hash)
   .. 'timestamp: ' .. os.time()
 end
 
-function commit(object)
+function commit(object, data)
   size, mtime = ioctx:stat(object)
   if not size then
     print(object .. ' does not exist')
     return
   end
 
-  data = ioctx:read(object, size, 0)
   hash = sha2.sha256hex(data)
 
   if not obj_head_exists(object) then
@@ -124,6 +130,7 @@ function commit(object)
     commit_hash = write_commit_blob(object, '', hash)
     if commit_hash then
       new_obj_head(object, commit_hash)
+      write(object, data)
     end
   else
     head = get_head_hash(object)
@@ -131,6 +138,7 @@ function commit(object)
     commit_hash = write_commit_blob(object, head, hash)
     if commit_hash then
       update_obj_head(object, commit_hash)
+      write(object, data)
     end
   end
 
@@ -142,7 +150,7 @@ function read(object)
   return ioctx:read(object, size, 0)
 end
 
-function get_version(commit_hash)
+function get_version_data(commit_hash)
   blob_hash = get_blob_hash(commit_hash)
   return read_blob(blob_hash)
 end
@@ -193,11 +201,7 @@ function put(object, path)
   end
   data = file:read "*a" -- *a or *all reads the whole file
   file:close()
-  if write(object, data, 0) then
-    print(commit(object))
-  else
-    print('fail to write the object:' .. object)
-  end
+  print(commit(object, data))
 end
 
 function get(object)
@@ -210,13 +214,12 @@ function get(object)
 end
 
 function rollback(object, ver)
-  data = get_version(ver)
-  write(object, data, 0)
-  print(commit(object))
+  data = get_version_data(ver)
+  print(commit(object, data))
 end
 
 actions = {
-  ["getver"] = function() print(get_version(arg[3])) end,
+  ["getver"] = function() print(get_version_data(arg[3])) end,
   ["getblob"] = function() print(read_blob(arg[3])) end,
   ["logs"] = function() ls_versions(object) end,
   ["rm"] = function() remove(object) end,
