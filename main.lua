@@ -8,7 +8,6 @@ sha2 = require 'sha2'
 command = arg[1]
 pool = arg[2]
 object = arg[3]
-vpool = pool .. '.ver'
 
 -- connect to cluster
 cluster = rados.create()
@@ -24,7 +23,16 @@ if not ioctx then
   return
 end
 
--- data.ver pool
+-------------------------
+-- data.ver pool structure
+-- HEAD/<obj1>
+-- HEAD/<obj2>
+-- ...
+-- blob/<hash1>
+-- blob/<hash2>
+-- blob/<hash3>
+-------------------------
+vpool = pool .. '.ver'
 vioctx = cluster:open_ioctx(vpool)
 if not vioctx then
   print(vpool .. ' does not exist! Do:')
@@ -32,9 +40,68 @@ if not vioctx then
   return
 end
 
+function obj_head_exists(object)
+  return vioctx:stat('HEAD/' .. object)
+end
+
+function new_obj_head(object, hash)
+  vioctx:write('HEAD/' .. object, '', 0, 0)
+  return vioctx:setxattr('HEAD/' .. object, 'ref', hash, #hash)
+end
+
+function get_head_hash(object)
+  return vioctx:getxattr('HEAD/' .. object, 'ref')
+end
+
+function get_blob_hash(commit_hash)
+  return vioctx:getxattr('blob/' .. commit_hash, 'blob')
+end
+
+function get_parent_hash(commit_hash)
+  return vioctx:getxattr('blob/' .. commit_hash, 'parent')
+end
+
+function update_obj_head(object, hash)
+  return vioctx:setxattr('HEAD/' .. object, 'ref', hash, #hash)
+end
+
+function write_blob(data, hash)
+  blob_obj = 'blob/' .. hash
+  size, mtime = vioctx:stat(blob_obj)
+  if not size then
+    vioctx:write(blob_obj, data, #data, 0)
+  end
+end
+
+function read_blob(hash)
+  blob_obj = 'blob/' .. hash
+  size, mtime = vioctx:stat(blob_obj)
+  if not size then
+    print(blob .. ' ' .. hash .. ' does not exist')
+    return nil
+  end
+  return vioctx:read(blob_obj, size, 0)
+end
+
+function write_commit_blob(object, parent, blob_hash)
+  msg = commit_msg(object, parent, blob_hash)
+  commit_hash = sha2.sha256hex(msg)
+  write_blob(msg, commit_hash)
+  blob_obj = 'blob/' .. commit_hash
+  vioctx:setxattr(blob_obj, 'parent', parent, #parent)
+  vioctx:setxattr(blob_obj, 'blob', blob_hash, #blob_hash)
+  return commit_hash
+end
 
 function write(object, str, offset)
   ioctx:write(object, str, #str, offset)
+end
+
+function commit_msg(object, parent, blob_hash)
+  return 'object: ' .. object .. '\n'
+  .. 'parent: ' .. parent .. '\n'
+  .. 'blob: ' .. blob_hash .. '\n'
+  .. 'timestamp: ' .. os.time()
 end
 
 function commit(object)
@@ -44,29 +111,21 @@ function commit(object)
     return
   end
 
-  head = ioctx:getxattr(object, 'HEAD')
   data = ioctx:read(object, size, 0)
   hash = sha2.sha256hex(data)
 
-  if hash == head then
-    -- file not changed since previous commit
-    print('nothing to commit')
+  if not obj_head_exists(object) then
+    write_blob(data, hash)
+    commit_hash = write_commit_blob(object, '', hash)
+    new_obj_head(object, commit_hash)
   else
-    -- write data to data.ver pool
-    vobj = object .. '.' .. hash
-    size, mtime = vioctx:stat(vobj)
-    if not size then
-      vioctx:write(vobj, data, #data, 0)
-      if head then
-        vioctx:setxattr(vobj, 'PREV', head, #head)
-      end
-    end
-
-    -- update prev pointer
-    ioctx:setxattr(object, 'HEAD', hash, #hash)
+    head = get_head_hash(object)
+    write_blob(data, hash)
+    commit_hash = write_commit_blob(object, head, hash)
+    update_obj_head(object, commit_hash)
   end
 
-  return hash
+  return commit_hash
 end
 
 function read(object)
@@ -74,28 +133,29 @@ function read(object)
   return ioctx:read(object, size, 0)
 end
 
-function read_version(object, version)
-  vobj = object .. '.' .. version
-  size, mtime = vioctx:stat(vobj)
-  print(vioctx:read(vobj, size, 0))
+function get_version(commit_hash)
+  blob_hash = get_blob_hash(commit_hash)
+  return read_blob(blob_hash)
 end
 
 function ls_versions(object)
-  size, mtime = ioctx:stat(object)
+  size, mtime = vioctx:stat('HEAD/' .. object)
   if not size then
     print(object .. ' does not exist')
     return
   end
 
-  head = ioctx:getxattr(object, 'HEAD')
-  print(head)
-
-  vobj = object .. '.' .. head
-  prev = vioctx:getxattr(vobj, 'PREV')
-  while prev do
-    print(prev)
-    vobj = object .. '.' .. prev 
-    prev = vioctx:getxattr(vobj, 'PREV')
+  head = get_head_hash(object)
+  print('commit: '..head)
+  print(read_blob(head))
+  print()
+  
+  _next = get_parent_hash(head)
+  while _next ~= '' do
+    print('commit: '.. _next)
+    print(read_blob(_next))
+    print()
+    _next = get_parent_hash(_next)
   end
 end
 
@@ -105,9 +165,15 @@ function remove(object)
     print(object .. ' does not exist')
     return
   end
+  
+  script = [[
+  function remove(input, output)
+    objclass.remove()
+  end
+  objclass.register(remove)
+  ]]
 
-  -- set delete flag
-  ioctx:setxattr(object, 'DELETE', 1, 1)
+  clslua.exec(ioctx, object, script, 'remove', '')
 end
 
 function put(object, path)
@@ -128,25 +194,23 @@ function get(object)
     print(object .. ' does not exist')
     return
   end
-  del_flag = ioctx:getxattr(object, 'DELETE')
-  if del_flag then
-    print(object .. ' is deleted')
-    return
-  end
   print(read(object))
 end
 
 function rollback(object, ver)
-  print('rollback to a specific version')
+  data = get_version(ver)
+  write(object, data, 0)
+  print(commit(object))
 end
 
 actions = {
-  ["getver"] = function() read_version(object, arg[4]) end,
-  ["lsver"] = function() ls_versions(object) end,
+  ["getver"] = function() print(get_version(arg[3])) end,
+  ["getblob"] = function() print(read_blob(arg[3])) end,
+  ["logs"] = function() ls_versions(object) end,
   ["rm"] = function() remove(object) end,
   ["put"] = function() put(object, arg[4]) end,
   ["get"] = function() get(object) end,
-  ["rollback"] = function() get(object) end,
+  ["rollback"] = function() rollback(object, arg[4]) end,
 }
 
 actions[command]()
