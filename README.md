@@ -11,7 +11,8 @@ luarocks install sha2
 ./main.lua put [pool] [object] [file_path]
 ./main.lua get [pool] [object]
 ./main.lua rm [pool] [object]
-./main.lua lsver [pool] [object]
-./main.lua getver [pool] [object] [version_number]
+./main.lua logs [pool] [object]
+./main.lua getver [pool] [version_number]
+./main.lua getblob [pool] [blob_hash]
 ./main.lua rollback [pool] [object] [version_number]
 ```

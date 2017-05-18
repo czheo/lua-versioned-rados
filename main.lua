@@ -84,6 +84,11 @@ function read_blob(hash)
 end
 
 function write_commit_blob(object, parent, blob_hash)
+  parent_blob = get_blob_hash(parent)
+  if parent_blob == blob_hash then
+    return nil
+  end
+
   msg = commit_msg(object, parent, blob_hash)
   commit_hash = sha2.sha256hex(msg)
   write_blob(msg, commit_hash)
@@ -94,7 +99,7 @@ function write_commit_blob(object, parent, blob_hash)
 end
 
 function write(object, str, offset)
-  ioctx:write(object, str, #str, offset)
+  return ioctx:write(object, str, #str, offset)
 end
 
 function commit_msg(object, parent, blob_hash)
@@ -117,12 +122,16 @@ function commit(object)
   if not obj_head_exists(object) then
     write_blob(data, hash)
     commit_hash = write_commit_blob(object, '', hash)
-    new_obj_head(object, commit_hash)
+    if commit_hash then
+      new_obj_head(object, commit_hash)
+    end
   else
     head = get_head_hash(object)
     write_blob(data, hash)
     commit_hash = write_commit_blob(object, head, hash)
-    update_obj_head(object, commit_hash)
+    if commit_hash then
+      update_obj_head(object, commit_hash)
+    end
   end
 
   return commit_hash
@@ -146,13 +155,13 @@ function ls_versions(object)
   end
 
   head = get_head_hash(object)
-  print('commit: '..head)
+  print('commit: ' .. head)
   print(read_blob(head))
   print()
   
   _next = get_parent_hash(head)
   while _next ~= '' do
-    print('commit: '.. _next)
+    print('commit: ' .. _next)
     print(read_blob(_next))
     print()
     _next = get_parent_hash(_next)
@@ -184,8 +193,11 @@ function put(object, path)
   end
   data = file:read "*a" -- *a or *all reads the whole file
   file:close()
-  write(object, data, 0)
-  print(commit(object))
+  if write(object, data, 0) then
+    print(commit(object))
+  else
+    print('fail to write the object:' .. object)
+  end
 end
 
 function get(object)
