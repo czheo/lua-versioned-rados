@@ -117,6 +117,7 @@ function commit_msg(object, parent, blob_hash)
 end
 
 function commit(object, data)
+  write(object, data)
   size, mtime = ioctx:stat(object)
   if not size then
     print(object .. ' does not exist')
@@ -130,7 +131,6 @@ function commit(object, data)
     commit_hash = write_commit_blob(object, '', hash)
     if commit_hash then
       new_obj_head(object, commit_hash)
-      write(object, data)
     end
   else
     head = get_head_hash(object)
@@ -138,7 +138,6 @@ function commit(object, data)
     commit_hash = write_commit_blob(object, head, hash)
     if commit_hash then
       update_obj_head(object, commit_hash)
-      write(object, data)
     end
   end
 
