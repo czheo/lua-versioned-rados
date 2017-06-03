@@ -8,8 +8,7 @@ exec = function(ioctx, oid, script, func, input)
     input = input,
   }
   packed_input = json.encode(cmd)
-  ret, outdata = ioctx:exec(oid, "lua", "eval_json", packed_input, #packed_input)
-  return ret, outdata
+  return ioctx:exec(oid, "lua", "eval_json", packed_input, #packed_input)
 end
 
 return {
