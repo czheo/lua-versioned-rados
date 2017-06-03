@@ -19,7 +19,7 @@ def init_bucket(conn):
             bucket.delete_key(ver.name, version_id = ver.version_id)
         conn.delete_bucket('test_bucket')
     bucket = conn.create_bucket(name)
-    bucket.configure_versioning(True)
+    bucket.configure_versioning(versioning)
     return bucket
 
 def set(bucket, key, val):
@@ -48,9 +48,10 @@ def connect():
         return conn
 
 def generate_random_data(ver_nu, size):
+    print "Generating %d different copies of %d KB objects" % (ver_nu, size)
     ret = []
     for i in xrange(ver_nu):
-        data = ''.join(random.choice(string.ascii_letters) for _ in xrange(size))
+        data = ''.join(random.choice(string.ascii_letters) for _ in xrange(size * 1024))
         ret.append(data)
     return ret
 
@@ -69,11 +70,18 @@ def worker(id, bucket):
 
 def monitor(interval):
     print "monitor start"
+    start_t = time.time()
     while any(t.is_alive() for t in threads):
         start_cnt = sum(counters)
         time.sleep(interval)
-        print (sum(counters) - start_cnt) * 1.0 / interval, 'OPS/sec'
+        print (sum(counters) - start_cnt) * 1.0 / interval, 'Ops/sec'
+    
+    ops = sum(counters)
+    ops_per_sec = ops * 1.0 / (time.time() - start_t)
     print "monitor stop"
+    print "=" * 10
+    print "AVG throughput:"
+    print "%f Ops/sec" % ops_per_sec, "%f MB/sec" % (ops_per_sec * obj_size / 1024)
 
 def main():
     try:
@@ -122,12 +130,15 @@ if __name__ == '__main__':
             default = 2,
             type = int,
             nargs='?')
+    parser.add_argument("--nover",
+            action='store_false')
     args = parser.parse_args()
     thread_nu = args.thread_nu
     obj_nu = args.obj_nu
     ver_nu = args.ver_nu
-    obj_size = args.obj_size * 1024
+    obj_size = args.obj_size
     monitor_interval = args.monitor_interval
+    versioning = args.nover
 
     # global var
     threads = []
