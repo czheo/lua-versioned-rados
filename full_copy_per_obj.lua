@@ -4,40 +4,38 @@ rados = require 'rados'
 clslua = require 'clslua'
 sha2 = require 'sha2'
 
--- common args
-command = arg[1]
-pool = arg[2]
-object = arg[3]
+function connect(pool)
+  -- connect to cluster
+  cluster = rados.create()
+  cluster:conf_read_file()
+  cluster:connect()
 
--- connect to cluster
-cluster = rados.create()
-cluster:conf_read_file()
-cluster:connect()
+  -- open pools
+  -- data pool
+  ioctx = cluster:open_ioctx(pool)
+  if not ioctx then
+    print(pool .. ' does not exist! Do:')
+    print('rados mkpool ' .. pool)
+    return
+  end
 
--- open pools
--- data pool
-ioctx = cluster:open_ioctx(pool)
-if not ioctx then
-  print(pool .. ' does not exist! Do:')
-  print('rados mkpool ' .. pool)
-  return
-end
-
--------------------------
--- data.ver pool structure
--- HEAD/<obj1>
--- HEAD/<obj2>
--- ...
--- blob/<hash1>
--- blob/<hash2>
--- blob/<hash3>
--------------------------
-vpool = pool .. '.ver'
-vioctx = cluster:open_ioctx(vpool)
-if not vioctx then
-  print(vpool .. ' does not exist! Do:')
-  print('rados mkpool ' .. vpool)
-  return
+  -------------------------
+  -- data.ver pool structure
+  -- HEAD/<obj1>
+  -- HEAD/<obj2>
+  -- ...
+  -- blob/<hash1>
+  -- blob/<hash2>
+  -- blob/<hash3>
+  -------------------------
+  vpool = pool .. '.ver'
+  vioctx = cluster:open_ioctx(vpool)
+  if not vioctx then
+    print(vpool .. ' does not exist! Do:')
+    print('rados mkpool ' .. vpool)
+    return
+  end
+  return ioctx, vioctx
 end
 
 function obj_head_exists(object)
@@ -217,14 +215,24 @@ function rollback(object, ver)
   print(commit(object, data))
 end
 
-actions = {
-  ["getver"] = function() print(get_version_data(arg[3])) end,
-  ["getblob"] = function() print(read_blob(arg[3])) end,
-  ["logs"] = function() ls_versions(object) end,
-  ["rm"] = function() remove(object) end,
-  ["put"] = function() put(object, arg[4]) end,
-  ["get"] = function() get(object) end,
-  ["rollback"] = function() rollback(object, arg[4]) end,
-}
+function main()
+  -- common args
+  command = arg[1]
+  pool = arg[2]
+  object = arg[3]
+  ioctx, vioctx = connect(pool)
 
-actions[command]()
+  actions = {
+    ["getver"] = function() print(get_version_data(arg[3])) end,
+    ["getblob"] = function() print(read_blob(arg[3])) end,
+    ["logs"] = function() ls_versions(object) end,
+    ["rm"] = function() remove(object) end,
+    ["put"] = function() put(object, arg[4]) end,
+    ["get"] = function() get(object) end,
+    ["rollback"] = function() rollback(object, arg[4]) end,
+  }
+
+  actions[command]()
+end
+
+main()

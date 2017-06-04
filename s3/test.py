@@ -1,9 +1,12 @@
+#! /usr/bin/env python
+
 import boto
 import boto.s3.connection
 import json
 import socket
 import os, sys
 import threading
+from multiprocessing import Process
 import argparse
 import string, random, time
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -87,22 +90,31 @@ def main():
     try:
         conn = connect()
         bucket = init_bucket(conn)
+        start_t = time.time()
         for i in xrange(thread_nu):
-            t = threading.Thread(target=worker, args=(i, bucket))
+            # t = threading.Thread(target=worker, args=(i, bucket))
+            t = Process(target=worker, args=(i, bucket))
             threads.append(t)
-            t.daemon = True
             t.start()
-        mon_thread = threading.Thread(target=monitor, args=(monitor_interval, ))
-        mon_thread.start()
-        while any(t.is_alive() for t in threads):
-            time.sleep(1)
+        # mon_thread = threading.Thread(target=monitor, args=(monitor_interval, ))
+        # mon_thread = Process(target=monitor, args=(monitor_interval, ))
+        # mon_thread.start()
+        for t in threads:
+            t.join()
     except (KeyboardInterrupt, SystemExit):
         print 'keyboard interrupted'
         global interrupted
         interrupted = True
-        mon_thread.join()
+        # mon_thread.join()
         for t in threads:
             t.join()
+    # ops = sum(counters)
+    ops = thread_nu * obj_nu * ver_nu
+    ops_per_sec = ops * 1.0 / (time.time() - start_t)
+    print "monitor stop"
+    print "=" * 10
+    print "AVG throughput:"
+    print "%f Ops/sec" % ops_per_sec, "%f MB/sec" % (ops_per_sec * obj_size / 1024)
 
 
 if __name__ == '__main__':
