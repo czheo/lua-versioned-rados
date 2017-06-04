@@ -17,27 +17,22 @@ function spawn(fn, ...)
   end
 end
 
-function connect()
-  cluster = rados.create()
-  cluster:conf_read_file()
-  cluster:connect()
-  ioctx = cluster:open_ioctx('data')
-  return ioctx
-end
-
 function worker(id) 
   print('start worker', id)
-  local ioctx = connect()
+  local ioctx = m.connect('data')
   for i = 1, ver_nu do
     for j = 1, obj_nu do
       data = workloads[i]
-      ioctx:write('thread-' .. tostring(id) .. '@' .. tostring(i), data, #data, 0)
+      m.put(ioctx, 'thread-' .. j, data)
+      -- m.put(ioctx, 'thread-' .. id .. '-' .. j, data)
+      -- m.get(ioctx, 'thread-' .. id .. '-' .. j)
     end
   end
   p._exit(0)
 end
 
 function main()
+  os.execute('make purge')
   start_t = socket.gettime()
   for i = 1, thread_nu do
     pid = spawn(worker, i)
@@ -78,9 +73,10 @@ end
 -- parse arguments
 local argparse = require "argparse"
 local parser = argparse()
+parser:option("-m --module", 'module', 'full_copy_in_obj')
 parser:option("--thread_nu", nil, 6,
   tonumber)
-parser:option("--obj_nu", nil, 10,
+parser:option("--obj_nu", nil, 20,
   tonumber)
 parser:option("--ver_nu", nil, 10,
   tonumber)
@@ -92,5 +88,6 @@ obj_nu = args.obj_nu
 ver_nu = args.ver_nu
 obj_size = args.obj_size
 workloads = generate_workloads(ver_nu, obj_size)
+m = require(args.module)
 
 main()

@@ -1,12 +1,18 @@
-#! /usr/bin/env lua
+ns = {}
+local rados = require 'rados'
+local clslua = require 'clslua'
+local inspect = require 'inspect'
+local utils = require 'utils'
 
-rados = require 'rados'
-clslua = require 'clslua'
-inspect = require 'inspect'
-utils = require 'utils'
+function ns.connect(pool)
+  cluster = rados.create()
+  cluster:conf_read_file()
+  cluster:connect()
+  ioctx = cluster:open_ioctx(pool)
+  return ioctx
+end
 
-function put(ioctx, key, path)
-  payload = utils.read_file(path)
+function ns.put(ioctx, key, payload)
   uid = utils.uniq_id()
   hash = utils.sha2(payload)
   input = uid .. '@' .. hash .. '@' .. payload
@@ -48,20 +54,25 @@ function put(ioctx, key, path)
         objclass.create()
         create_commit(uid, hash, payload_bl, nil)
       else
-        -- head = objclass.map_get_val('HEAD')
-        -- create_commit(uid, hash, payload_bl, head)
+        head = objclass.map_get_val('HEAD')
+        create_commit(uid, hash, payload_bl, head)
       end
     end
     objclass.register(put)
   ]]
-  return clslua.exec(ioctx, key, script, 'put', input)
+  ret, data = clslua.exec(ioctx, key, script, 'put', input)
+  if not ret then
+    utils.perror('Fail to put key: ' .. key)
+  end
+  return uid
 end
 
-function get(ioctx, key)
+function ns.get(ioctx, key)
   script = [[
     function get(input, output)
       head = objclass.map_get_val('HEAD')
-      data = objclass.map_get_val('commit/' .. head:str())
+      hash = objclass.map_get_val('commit/' .. head:str())
+      data = objclass.map_get_val('blob/' .. hash:str())
       output:append(data:str())
     end
     objclass.register(get)
@@ -69,49 +80,31 @@ function get(ioctx, key)
   return clslua.exec(ioctx, key, script, 'get', "")
 end
 
-function lsver()
+function ns.lsver(ioctx, key)
+  script = [[
+    function lsver(input, output)
+      head = objclass.map_get_val('HEAD')
+      curr = head:str()
+      while curr ~= 'NULL' do
+        output:append(curr .. '\n')
+        curr = objclass.map_get_val('commit/' .. curr .. '/prev'):str()
+      end
+    end
+    objclass.register(lsver)
+  ]]
+  return clslua.exec(ioctx, key, script, 'lsver', "")
 end
 
-function main(args)
-  pool = args['pool']
-  cluster = rados.create()
-  cluster:conf_read_file()
-  cluster:connect()
-  ioctx = cluster:open_ioctx(pool)
-  if args['put'] then
-    ret, data = put(ioctx, args['key'], args['path'])
-    if ret then
-      print(data)
-    else
-      print(ret, data)
+function ns.getver(ioctx, key, ver)
+  script = [[
+    function getver(input, output)
+        hash = objclass.map_get_val('commit/' .. input:str())
+        data = objclass.map_get_val('blob/' .. hash:str())
+        output:append(data:str())
     end
-  elseif args['get'] then
-    ret, data = get(ioctx, args['key'])
-    if ret then
-      io.write(data)
-    else
-      utils.perror('Key not found: ' .. args['key'])
-    end
-  elseif args['lsver'] then
-    lsver()
-  else
-  end
+    objclass.register(getver)
+  ]]
+  return clslua.exec(ioctx, key, script, 'getver', ver)
 end
 
-local argparse = require "argparse"
-
-local parser = argparse("script", "An example.")
-parser:option("-p --pool", "pool", "data")
-parser:command_target("command")
-
-local put_parser = parser:command("put")
-put_parser:argument "key"
-put_parser:argument "path"
-
-local get_parser = parser:command("get")
-get_parser:argument "key"
-
-local get_parser = parser:command("lsver")
-
-local args = parser:parse()
-main(args)
+return ns

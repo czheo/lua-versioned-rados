@@ -1,5 +1,6 @@
 local sha2 = require 'sha2'
 local utils = {}
+local socket = require 'socket'
 
 -- generate sha2 hash
 function utils.sha2(data)
@@ -7,11 +8,11 @@ function utils.sha2(data)
 end
 
 -- generate uniq id
-local urand = assert (io.open ('/dev/urandom', 'rb')):read(64)
-local counter = 0
+-- local counter = 0
 function utils.uniq_id()
-  id = utils.sha2(urand .. tostring(counter))
-  counter = counter + 1
+  local urand = assert (io.open ('/dev/urandom', 'rb')):read(64)
+  id = utils.sha2(urand)
+  -- counter = counter + 1
   return id
 end
 
@@ -30,6 +31,10 @@ function utils.read_file(path)
   data = file:read "*a" -- *a or *all reads the whole file
   file:close()
   return data
+end
+
+function sleep(sec)
+  socket.select(nil, nil, sec)
 end
 
 return utils
