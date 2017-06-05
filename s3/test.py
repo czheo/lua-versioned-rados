@@ -66,9 +66,10 @@ def worker(id, bucket):
                 print "worker %d stopped" % id
                 return
             data = workload[i]
-            key = 'thread%d-%d' % (id, obj_idx)
+            key = 'obj-%d' % (obj_idx)
+            # key = 'thread%d-%d' % (id, obj_idx)
             set(bucket, key, data)
-            get(bucket, key)
+            # get(bucket, key)
             counters[id] += 1
 
 def monitor(interval):
@@ -113,8 +114,8 @@ def main():
     ops_per_sec = ops * 1.0 / (time.time() - start_t)
     print "monitor stop"
     print "=" * 10
-    print "AVG throughput:"
-    print "%f Ops/sec" % ops_per_sec, "%f MB/sec" % (ops_per_sec * obj_size / 1024)
+    print "AVG throughput = %f Ops/sec" % ops_per_sec
+    print "AVG throughput = %f MB/sec" % (ops_per_sec * obj_size / 1024)
 
 
 if __name__ == '__main__':
@@ -149,8 +150,11 @@ if __name__ == '__main__':
     obj_nu = args.obj_nu
     ver_nu = args.ver_nu
     obj_size = args.obj_size
-    monitor_interval = args.monitor_interval
     versioning = args.nover
+    print 'thread_nu = ', thread_nu
+    print 'obj_nu = ', obj_nu
+    print 'ver_nu = ', ver_nu
+    print 'obj_size = ', obj_size
 
     # global var
     threads = []

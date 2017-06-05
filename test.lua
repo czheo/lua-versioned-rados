@@ -23,7 +23,8 @@ function worker(id)
   for i = 1, ver_nu do
     for j = 1, obj_nu do
       data = workloads[i]
-      m.put(ioctx, 'thread-' .. j, data)
+      -- ioctx:write('obj-' .. j, data, #data, 0)
+      m.put(ioctx, 'obj-' .. j, data)
       -- m.put(ioctx, 'thread-' .. id .. '-' .. j, data)
       -- m.get(ioctx, 'thread-' .. id .. '-' .. j)
     end
@@ -87,7 +88,13 @@ thread_nu = args.thread_nu
 obj_nu = args.obj_nu
 ver_nu = args.ver_nu
 obj_size = args.obj_size
-workloads = generate_workloads(ver_nu, obj_size)
 m = require(args.module)
+print('thread_nu =', thread_nu)
+print('obj_nu =', obj_nu)
+print('ver_nu =', ver_nu)
+print('obj_size=', obj_size)
+print('module =', args.module)
+
+workloads = generate_workloads(ver_nu, obj_size)
 
 main()
