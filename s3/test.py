@@ -14,15 +14,18 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 
 def init_bucket(conn):
     name = 'test_bucket'
-    existed = conn.lookup(name)
-    if existed:
-        print("bucket resetting")
-        bucket = conn.get_bucket('test_bucket')
-        for ver in bucket.list_versions():
-            bucket.delete_key(ver.name, version_id = ver.version_id)
-        conn.delete_bucket('test_bucket')
-    bucket = conn.create_bucket(name)
-    bucket.configure_versioning(versioning)
+    if args.op == 'set':
+        # reset bucket
+        existed = conn.lookup(name)
+        if existed:
+            print("bucket resetting")
+            bucket = conn.get_bucket('test_bucket')
+            for ver in bucket.list_versions():
+                bucket.delete_key(ver.name, version_id = ver.version_id)
+            conn.delete_bucket('test_bucket')
+        bucket = conn.create_bucket(name)
+        bucket.configure_versioning(versioning)
+    bucket = conn.get_bucket('test_bucket')
     return bucket
 
 def set(bucket, key, val):
@@ -65,11 +68,13 @@ def worker(id, bucket):
             if interrupted:
                 print "worker %d stopped" % id
                 return
-            data = workload[i]
             key = 'obj-%d' % (obj_idx)
             # key = 'thread%d-%d' % (id, obj_idx)
-            set(bucket, key, data)
-            # get(bucket, key)
+            if args.op == 'set':
+                data = workload[i]
+                set(bucket, key, data)
+            if args.op == 'get':
+                get(bucket, key)
             counters[id] += 1
 
 def monitor(interval):
@@ -93,8 +98,9 @@ def main():
         bucket = init_bucket(conn)
         start_t = time.time()
         for i in xrange(thread_nu):
+            t = threading.Thread(target=worker, args=(i, bucket))
             # t = threading.Thread(target=worker, args=(i, bucket))
-            t = Process(target=worker, args=(i, bucket))
+            # t = Process(target=worker, args=(i, bucket))
             threads.append(t)
             t.start()
         # mon_thread = threading.Thread(target=monitor, args=(monitor_interval, ))
@@ -120,6 +126,9 @@ def main():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument("--op",
+            default = 'set',
+            nargs='?')
     parser.add_argument("--thread_nu",
             default = 6,
             type = int,
@@ -160,6 +169,7 @@ if __name__ == '__main__':
     threads = []
     counters = [0] * thread_nu
     interrupted = False
-    workload = generate_random_data(ver_nu, obj_size)
+    if args.op == 'set':
+        workload = generate_random_data(ver_nu, obj_size)
     main()
 

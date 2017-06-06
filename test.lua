@@ -22,18 +22,23 @@ function worker(id)
   local ioctx = m.connect('data')
   for i = 1, ver_nu do
     for j = 1, obj_nu do
-      data = workloads[i]
-      -- ioctx:write('obj-' .. j, data, #data, 0)
-      m.put(ioctx, 'obj-' .. j, data)
-      -- m.put(ioctx, 'thread-' .. id .. '-' .. j, data)
-      -- m.get(ioctx, 'thread-' .. id .. '-' .. j)
+      key = 'obj-' .. j
+      -- key = 'thread-' .. id .. '-' .. j
+      if args.op == 'set' then
+        data = workloads[i]
+        m.put(ioctx, key, data)
+      else
+        m.get(ioctx, 'obj-' .. j)
+      end
     end
   end
   p._exit(0)
 end
 
 function main()
-  os.execute('make purge')
+  if args.op == 'set' then
+    os.execute('make purge')
+  end
   start_t = socket.gettime()
   for i = 1, thread_nu do
     pid = spawn(worker, i)
@@ -75,6 +80,7 @@ end
 local argparse = require "argparse"
 local parser = argparse()
 parser:option("-m --module", 'module', 'full_copy_in_obj')
+parser:option("--op", nil, 'set')
 parser:option("--thread_nu", nil, 6,
   tonumber)
 parser:option("--obj_nu", nil, 20,
@@ -83,18 +89,40 @@ parser:option("--ver_nu", nil, 10,
   tonumber)
 parser:option("--obj_size", nil, 512,
   tonumber)
-local args = parser:parse()
+args = parser:parse()
 thread_nu = args.thread_nu
 obj_nu = args.obj_nu
 ver_nu = args.ver_nu
 obj_size = args.obj_size
-m = require(args.module)
+if args.module == 'raw' then
+  m = {
+    connect = function (pool)
+      cluster = rados.create()
+      cluster:conf_read_file()
+      cluster:connect()
+      ioctx = cluster:open_ioctx(pool)
+      return ioctx
+    end,
+    get = function(ioctx, key)
+        size, mtime = ioctx:stat(key)
+        return ioctx:read(key, size, 0)
+    end,
+    put = function(ioctx, key, data)
+        ioctx:write(key, data, #data, 0)
+    end
+  }
+else
+  m = require(args.module)
+end
 print('thread_nu =', thread_nu)
 print('obj_nu =', obj_nu)
 print('ver_nu =', ver_nu)
 print('obj_size=', obj_size)
 print('module =', args.module)
+print('op =', args.op)
 
-workloads = generate_workloads(ver_nu, obj_size)
+if args.op == 'set' then
+  workloads = generate_workloads(ver_nu, obj_size)
+end
 
 main()
